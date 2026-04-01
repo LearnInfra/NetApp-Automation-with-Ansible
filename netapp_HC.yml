@@ -1,0 +1,55 @@
+---
+- name: NetApp ONTAP Health Check Report
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # It is recommended to move these to group_vars/all.yml or use ansible-vault
+    netapp_hostname: "192.168.1.50"
+    netapp_username: "admin"
+    netapp_password: "YourSecurePassword"
+    https: true
+    validate_certs: false
+
+  tasks:
+    - name: 1. Get Cluster Information
+      netapp.ontap.na_ontap_info:
+        hostname: "{{ netapp_hostname }}"
+        username: "{{ netapp_username }}"
+        password: "{{ netapp_password }}"
+        https: "{{ https }}"
+        validate_certs: "{{ validate_certs }}"
+        gather_subset:
+          - cluster_identity_info
+          - cluster_node_info
+          - storage_aggregate_info
+      register: ontap_facts
+
+    - name: 2. Analyze Node Health
+      set_fact:
+        node_issues: "{{ ontap_facts.ontap_info.cluster_node_info | dict2items | selectattr('value.operational_state', 'ne', 'up') | list }}"
+
+    - name: 3. Analyze Aggregate Capacity
+      set_fact:
+        full_aggrs: >-
+          {% set high_usage = [] %}
+          {% for name, data in ontap_facts.ontap_info.storage_aggregate_info.items() %}
+            {% set used_pct = (data.aggr_space_details.percent_used | default(0) | float) %}
+            {% if used_pct > 90 %}
+              {% do high_usage.append({'name': name, 'used': used_pct}) %}
+            {% endif %}
+          {% endfor %}
+          {{ high_usage }}
+
+    - name: 4. Display Health Summary
+      debug:
+        msg:
+          - "--- Health Report for {{ netapp_hostname }} ---"
+          - "Cluster Name: {{ ontap_facts.ontap_info.cluster_identity_info.cluster_name }}"
+          - "ONTAP Version: {{ ontap_facts.ontap_info.cluster_identity_info.cluster_version }}"
+          - "Node Status: {{ '⚠️ ISSUES DETECTED' if node_issues | length > 0 else '✅ ALL NODES UP' }}"
+          - "Storage Alerts: {{ '🚨 CRITICAL SPACE' if full_aggrs | length > 0 else '✅ SPACE OK' }}"
+
+    - name: 5. Save Report to Local File
+      copy:
+        content: "{{ ontap_facts.ontap_info | to_nice_json }}"
+        dest: "./reports/health_check_{{ netapp_hostname }}_{{ ansible_date_time.date }}.json"
