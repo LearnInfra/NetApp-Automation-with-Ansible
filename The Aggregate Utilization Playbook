@@ -1,0 +1,62 @@
+---
+- name: NetApp Aggregate Utilization Report
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Cluster Connection Details
+    netapp_hostname: "192.168.1.50"
+    netapp_username: "admin"
+    netapp_password: "YourSecurePassword"
+    
+    # Thresholds for Alerting
+    warning_threshold: 80
+    critical_threshold: 90
+
+  tasks:
+    - name: 1. Gather Aggregate Info
+      netapp.ontap.na_ontap_info:
+        hostname: "{{ netapp_hostname }}"
+        username: "{{ netapp_username }}"
+        password: "{{ netapp_password }}"
+        https: true
+        validate_certs: false
+        gather_subset:
+          - storage_aggregate_info
+      register: aggr_facts
+
+    - name: 2. Process and Filter Utilization Data
+      set_fact:
+        aggr_report: >-
+          {% set report_list = [] %}
+          {% for name, data in aggr_facts.ontap_info.storage_aggregate_info.items() %}
+            {% set used_pct = data.aggr_space_details.percent_used | default(0) | float %}
+            {% set status = "✅ OK" %}
+            {% if used_pct >= critical_threshold %}
+              {% set status = "🚨 CRITICAL" %}
+            {% elif used_pct >= warning_threshold %}
+              {% set status = "⚠️ WARNING" %}
+            {% endif %}
+            
+            {% set _ = report_list.append({
+                'name': name,
+                'used_percent': used_pct,
+                'total_size_gb': (data.aggr_space_details.size_total | default(0) | float / 1024 / 1024 / 1024) | round(2),
+                'status': status
+            }) %}
+          {% endfor %}
+          {{ report_list }}
+
+    - name: 3. Display Utilization Table
+      debug:
+        msg: |
+          "AGGREGATE UTILIZATION REPORT - {{ netapp_hostname }}"
+          ---------------------------------------------------
+          {% for item in aggr_report %}
+          Aggr: {{ item.name | pad(15) }} | Used: {{ item.used_percent }}% | Size: {{ item.total_size_gb }} GB | Status: {{ item.status }}
+          {% endfor %}
+
+    - name: 4. Fail if any Aggregate is Critical
+      fail:
+        msg: "CRITICAL SPACE ALERT: One or more aggregates are above {{ critical_threshold }}%!"
+      when: "aggr_report | selectattr('status', 'equalto', '🚨 CRITICAL') | list | length > 0"
+      ignore_errors: true
