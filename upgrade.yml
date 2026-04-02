@@ -1,0 +1,51 @@
+---
+- name: Multi-Cluster ONTAP Upgrade
+  hosts: ontap_clusters
+  gather_facts: false
+  vars:
+    # Upgrade Details
+    target_version: "9.15.1P1"
+    image_url: "http://webserver.local/images/9151P1_q_image.tgz"
+    
+    # Connection Details
+    netapp_user: "admin"
+    netapp_pass: "YourSecurePassword"
+
+  tasks:
+    - name: 1. Download Software Image to Nodes
+      netapp.ontap.na_ontap_software_update:
+        state: present
+        package_url: "{{ image_url }}"
+        hostname: "{{ ansible_host }}"
+        username: "{{ netapp_user }}"
+        password: "{{ netapp_pass }}"
+        https: true
+        validate_certs: false
+        download_only: true  # Only downloads, does not start upgrade yet
+
+    - name: 2. Validate Cluster Readiness
+      netapp.ontap.na_ontap_software_update:
+        state: present
+        hostname: "{{ ansible_host }}"
+        username: "{{ netapp_user }}"
+        password: "{{ netapp_pass }}"
+        https: true
+        validate_certs: false
+        version: "{{ target_version }}"
+        validate_only: true  # Runs pre-checks (LIFs, HA, Health)
+
+    - name: 3. Execute Automated Non-Disruptive Upgrade
+      netapp.ontap.na_ontap_software_update:
+        state: present
+        hostname: "{{ ansible_host }}"
+        username: "{{ netapp_user }}"
+        password: "{{ netapp_pass }}"
+        https: true
+        validate_certs: false
+        version: "{{ target_version }}"
+        # state 'waiting_for_finish' triggers the actual update process
+      register: upgrade_result
+
+    - name: 4. Monitor Progress
+      debug:
+        msg: "Upgrade started on {{ inventory_hostname }}. Result: {{ upgrade_result.validation_reports_after_updates }}"
