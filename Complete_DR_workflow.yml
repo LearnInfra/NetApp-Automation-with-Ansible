@@ -1,0 +1,51 @@
+---
+- name: SnapMirror Setup
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+
+    - name: Create destination volume
+      netapp.ontap.na_ontap_volume:
+        hostname: "{{ dst_cluster }}"
+        username: "{{ dst_user }}"
+        password: "{{ dst_password }}"
+        validate_certs: false
+        state: present
+        svm: "{{ dst_svm }}"
+        name: "{{ dst_volume }}"
+        aggregate_name: aggr1
+        size: 500GB
+        type: DP
+
+    - name: Create SnapMirror relationship
+      netapp.ontap.na_ontap_snapmirror:
+        hostname: "{{ dst_cluster }}"
+        username: "{{ dst_user }}"
+        password: "{{ dst_password }}"
+        validate_certs: false
+        state: present
+
+        source_endpoint:
+          path: "{{ src_svm }}:{{ src_volume }}"
+
+        destination_endpoint:
+          path: "{{ dst_svm }}:{{ dst_volume }}"
+
+        policy: MirrorAllSnapshots
+        schedule: hourly
+
+    - name: Initialize SnapMirror
+      netapp.ontap.na_ontap_snapmirror:
+        hostname: "{{ dst_cluster }}"
+        username: "{{ dst_user }}"
+        password: "{{ dst_password }}"
+        validate_certs: false
+
+        source_endpoint:
+          path: "{{ src_svm }}:{{ src_volume }}"
+
+        destination_endpoint:
+          path: "{{ dst_svm }}:{{ dst_volume }}"
+
+        initialize: true
