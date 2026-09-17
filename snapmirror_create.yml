@@ -1,0 +1,38 @@
+---
+- name: Create SnapMirror Relationship
+  hosts: localhost
+  gather_facts: false
+
+  collections:
+    - netapp.ontap
+
+  vars:
+    dst_cluster: 10.10.10.20
+    dst_user: admin
+    dst_password: password
+
+    src_svm: svm_prod
+    src_volume: vol_data
+
+    dst_svm: svm_dr
+    dst_volume: vol_data_dr
+
+  tasks:
+
+    - name: Create SnapMirror
+      netapp.ontap.na_ontap_snapmirror:
+        state: present
+        hostname: "{{ dst_cluster }}"
+        username: "{{ dst_user }}"
+        password: "{{ dst_password }}"
+        validate_certs: false
+
+        source_endpoint:
+          path: "{{ src_svm }}:{{ src_volume }}"
+
+        destination_endpoint:
+          path: "{{ dst_svm }}:{{ dst_volume }}"
+
+        policy: MirrorAllSnapshots
+        relationship_type: extended_data_protection
+        schedule: hourly
